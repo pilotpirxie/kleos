@@ -1,0 +1,30 @@
+{
+  "name": "kleos",
+  "version": "0.1.0",
+  "description": "Axios-compatible HTTP client on native fetch, zero runtime dependencies",
+  "type": "module",
+  "main": "./dist/kleos.js",
+  "types": "./dist/kleos.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/kleos.d.ts",
+      "import": "./dist/kleos.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && tsc -p tsconfig.test.json && node --test dist/tests/axios.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "axios": "^1.14.0",
+    "typescript": "~5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
