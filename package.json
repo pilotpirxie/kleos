@@ -17,12 +17,14 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && tsc -p tsconfig.test.json && node --test dist/tests/axios.test.js"
+    "test": "tsc && tsc -p tsconfig.test.json && node --test  --experimental-test-coverage 'dist/**/*.test.js'"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "axios": "^1.14.0",
-    "typescript": "~5.7.0"
+    "kleos": "file:.",
+    "typescript": "~5.7.0",
+    "tsx": "^4.20.5"
   },
   "engines": {
     "node": ">=18"

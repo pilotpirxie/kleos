@@ -796,17 +796,20 @@ async function parseResponseData(response: Response, config: InternalKleosReques
     }
     const text = await response.text();
     const contentType = response.headers.get('content-type') ?? '';
-    const looksJson = rt === 'json' ||
-        (transitional.forcedJSONParsing !== false &&
-            /json|\+json/.test(contentType) &&
-            text.length > 0);
-    if (looksJson) {
+    const jsonish = /json|\+json/i.test(contentType);
+    // Only JSON-parse when there is a body and JSON is plausible (axios-like); empty bodies stay as "" for HEAD/204 parity.
+    const shouldTryJsonParse =
+        text.length > 0 &&
+        rt === 'json' &&
+        (jsonish || transitional.forcedJSONParsing !== false);
+    if (shouldTryJsonParse) {
         try {
-            return text === '' ? null : JSON.parse(text);
+            return JSON.parse(text);
         }
         catch (e) {
+            // Wrong content-type but valid text (e.g. text/plain error bodies) returns raw string when silent.
             if (transitional.silentJSONParsing) {
-                return null;
+                return text;
             }
             throw e;
         }
@@ -1195,6 +1198,26 @@ async function dispatchRequest(config: InternalKleosRequestConfig): Promise<Kleo
     }
     catch (err) {
         cleanup();
+        // Legacy cancel token: reject with the same Cancel instance axios users expect for isCancel().
+        if (working.cancelToken?.reason instanceof Cancel) {
+            throw working.cancelToken.reason;
+        }
+        const isAbortError =
+            err instanceof DOMException && err.name === 'AbortError' ||
+            err instanceof Error && err.message.includes('aborted');
+        if (isAbortError) {
+            const userSig = working.signal;
+            if (userSig?.aborted) {
+                const message =
+                    typeof AbortSignal !== 'undefined' &&
+                    userSig instanceof AbortSignal &&
+                    userSig.reason !== undefined &&
+                    userSig.reason !== null
+                        ? String(userSig.reason)
+                        : 'canceled';
+                throw new Cancel(message);
+            }
+        }
         const code = toKleosCode(err, working.transitional?.clarifyTimeoutError === true);
         const msg = code === 'ETIMEDOUT' || code === 'ECONNABORTED'
             ? working.timeoutErrorMessage ?? 'timeout of ' + timeout + 'ms exceeded'
@@ -1242,14 +1265,22 @@ async function runRequest(config: InternalKleosRequestConfig, interceptors: {
     response: InterceptorManager<KleosResponse>;
 }): Promise<KleosResponse> {
     let chain: Promise<InternalKleosRequestConfig> = Promise.resolve(config);
-    interceptors.request.forEach(({ fulfilled, rejected, synchronous }) => {
+    const reqHandlers = interceptors.request._handlers;
+    // Axios runs the last registered request interceptor first; walk slots in reverse while keeping stable eject indices.
+    for (let i = reqHandlers.length - 1; i >= 0; i--) {
+        const h = reqHandlers[i];
+        if (!h)
+            continue;
+        if (h.runWhen && !h.runWhen(config))
+            continue;
+        const { fulfilled, rejected, synchronous } = h;
         chain = chain.then((cfg) => {
             if (synchronous && fulfilled) {
                 return fulfilled(cfg) as InternalKleosRequestConfig;
             }
             return Promise.resolve(cfg).then(fulfilled ?? ((c: InternalKleosRequestConfig) => c)) as Promise<InternalKleosRequestConfig>;
         }, rejected ?? ((e: unknown) => Promise.reject(e))) as Promise<InternalKleosRequestConfig>;
-    });
+    }
     let responseChain: Promise<KleosResponse> = chain.then((cfg) => dispatchRequest(cfg));
     interceptors.response.forEach(({ fulfilled, rejected }) => {
         responseChain = responseChain.then((r) => (fulfilled ? fulfilled(r) : r) as KleosResponse, rejected ?? ((e: unknown) => Promise.reject(e))) as Promise<KleosResponse>;
