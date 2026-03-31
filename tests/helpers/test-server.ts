@@ -49,66 +49,72 @@ async function readBodyText(req: IncomingMessage): Promise<string> {
  * - /chunked — streams several chunks for download progress tests
  */
 export async function startTestServer(): Promise<TestServer> {
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    const path = url.pathname;
-    const bodyText = await readBodyText(req);
+  const server = createServer(
+    async (req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      const path = url.pathname;
+      const bodyText = await readBodyText(req);
 
-    if (path === "/json" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ hello: "world" }));
-      return;
-    }
+      if (path === "/json" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ hello: "world" }));
+        return;
+      }
 
-    const statusMatch = /^\/status\/(\d{3})$/.exec(path);
-    if (statusMatch) {
-      const code = Number(statusMatch[1]);
-      res.writeHead(code, { "Content-Type": "text/plain" });
-      if (req.method === "HEAD") {
+      const statusMatch = /^\/status\/(\d{3})$/.exec(path);
+      if (statusMatch) {
+        const code = Number(statusMatch[1]);
+        res.writeHead(code, { "Content-Type": "text/plain" });
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(code >= 400 ? "error" : "ok");
+        return;
+      }
+
+      if (path === "/delay" && req.method === "GET") {
+        const ms = Number(url.searchParams.get("ms") ?? "0");
+        await new Promise((r) => setTimeout(r, ms));
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("delayed");
+        return;
+      }
+
+      if (path === "/chunked" && req.method === "GET") {
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Transfer-Encoding": "chunked",
+        });
+        const parts = [
+          Buffer.alloc(8000, 1),
+          Buffer.alloc(8000, 2),
+          Buffer.alloc(4000, 3),
+        ];
+        for (const part of parts) {
+          res.write(part);
+        }
         res.end();
         return;
       }
-      res.end(code >= 400 ? "error" : "ok");
-      return;
-    }
 
-    if (path === "/delay" && req.method === "GET") {
-      const ms = Number(url.searchParams.get("ms") ?? "0");
-      await new Promise((r) => setTimeout(r, ms));
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("delayed");
-      return;
-    }
-
-    if (path === "/chunked" && req.method === "GET") {
-      res.writeHead(200, {
-        "Content-Type": "application/octet-stream",
-        "Transfer-Encoding": "chunked",
-      });
-      const parts = [Buffer.alloc(8000, 1), Buffer.alloc(8000, 2), Buffer.alloc(4000, 3)];
-      for (const part of parts) {
-        res.write(part);
+      if (path === "/echo" || path === "/echo/") {
+        const echoed: EchoedRequest = {
+          method: req.method,
+          path: url.pathname,
+          search: url.search,
+          headers: req.headers,
+          body: bodyText,
+        };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(echoed));
+        return;
       }
-      res.end();
-      return;
-    }
 
-    if (path === "/echo" || path === "/echo/") {
-      const echoed: EchoedRequest = {
-        method: req.method,
-        path: url.pathname,
-        search: url.search,
-        headers: req.headers,
-        body: bodyText,
-      };
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(echoed));
-      return;
-    }
-
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("not found");
-  });
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("not found");
+    },
+  );
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

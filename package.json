@@ -16,8 +16,11 @@
   ],
   "scripts": {
     "build": "tsc",
+    "demo": "tsx demo/index.ts",
+    "demo:advanced": "tsx demo/advanced.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && tsc -p tsconfig.test.json && node --test  --experimental-test-coverage 'dist/**/*.test.js'"
+    "test": "tsc && tsc -p tsconfig.test.json && node --test  --experimental-test-coverage 'dist/**/*.test.js'",
+    "prettier": "npx prettier --write ."
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

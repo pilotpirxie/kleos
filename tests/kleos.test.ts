@@ -13,7 +13,15 @@ import axios, {
   isKleosError as isAxiosError,
   isCancel,
 } from "kleos";
-import { startTestServer, stopTestServer, type EchoedRequest } from "./helpers/test-server.js";
+import {
+  createTestFileList,
+  withFileListGlobal,
+} from "./helpers/file-list-test-double.js";
+import {
+  startTestServer,
+  stopTestServer,
+  type EchoedRequest,
+} from "./helpers/test-server.js";
 
 describe("Instance Creation & Defaults", () => {
   test("axios.create applies baseURL, timeout, and default headers", async () => {
@@ -24,7 +32,9 @@ describe("Instance Creation & Defaults", () => {
       headers: { "X-Instance": "1" },
     });
     try {
-      const res = await instance.get<EchoedRequest>("/echo", { headers: { "X-Req": "a" } });
+      const res = await instance.get<EchoedRequest>("/echo", {
+        headers: { "X-Req": "a" },
+      });
       assert.equal(res.status, 200);
       assert.equal(res.data.path, "/echo");
       assert.equal(res.data.headers["x-instance"], "1");
@@ -61,7 +71,11 @@ describe("Instance Creation & Defaults", () => {
       );
       assert.equal(res.data.headers["x-post-default"], "pd");
       assert.equal(res.data.headers["x-post-req"], "pr");
-      assert.ok(String(res.data.headers["content-type"] ?? "").includes("application/json"));
+      assert.ok(
+        String(res.data.headers["content-type"] ?? "").includes(
+          "application/json",
+        ),
+      );
     } finally {
       await stopTestServer(server);
     }
@@ -89,6 +103,22 @@ describe("Instance Creation & Defaults", () => {
       await stopTestServer(server);
     }
   });
+
+  test("per-request data replaces instance defaults.data (no deep merge of body)", async () => {
+    const { baseURL: url, server } = await startTestServer();
+    const instance = axios.create({
+      baseURL: url,
+      data: { a: 1, b: 2 },
+    });
+    try {
+      const res = await instance.post<EchoedRequest>("/echo", { b: 3 });
+      const parsed = JSON.parse(res.data.body) as Record<string, unknown>;
+      assert.deepEqual(parsed, { b: 3 });
+      assert.ok(!("a" in parsed));
+    } finally {
+      await stopTestServer(server);
+    }
+  });
 });
 
 describe("Basic Request Methods", () => {
@@ -98,13 +128,19 @@ describe("Basic Request Methods", () => {
       const getRes = await axios.get<EchoedRequest>(`${baseURL}/echo`);
       assert.equal(getRes.data.method, "GET");
 
-      const postRes = await axios.post<EchoedRequest>(`${baseURL}/echo`, { x: 1 });
+      const postRes = await axios.post<EchoedRequest>(`${baseURL}/echo`, {
+        x: 1,
+      });
       assert.equal(postRes.data.method, "POST");
 
-      const putRes = await axios.put<EchoedRequest>(`${baseURL}/echo`, { x: 2 });
+      const putRes = await axios.put<EchoedRequest>(`${baseURL}/echo`, {
+        x: 2,
+      });
       assert.equal(putRes.data.method, "PUT");
 
-      const patchRes = await axios.patch<EchoedRequest>(`${baseURL}/echo`, { x: 3 });
+      const patchRes = await axios.patch<EchoedRequest>(`${baseURL}/echo`, {
+        x: 3,
+      });
       assert.equal(patchRes.data.method, "PATCH");
 
       const delRes = await axios.delete<EchoedRequest>(`${baseURL}/echo`);
@@ -125,11 +161,17 @@ describe("Basic Request Methods", () => {
   test("axios(config) and axios(url, config) behave like get with merged config", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const a = await axios<EchoedRequest>({ url: `${baseURL}/echo`, method: "GET", headers: { "X-A": "1" } });
+      const a = await axios<EchoedRequest>({
+        url: `${baseURL}/echo`,
+        method: "GET",
+        headers: { "X-A": "1" },
+      });
       assert.equal(a.data.method, "GET");
       assert.equal(a.data.headers["x-a"], "1");
 
-      const b = await axios.get<EchoedRequest>(`${baseURL}/echo`, { headers: { "X-B": "2" } });
+      const b = await axios.get<EchoedRequest>(`${baseURL}/echo`, {
+        headers: { "X-B": "2" },
+      });
       assert.equal(b.data.headers["x-b"], "2");
     } finally {
       await stopTestServer(server);
@@ -141,7 +183,9 @@ describe("Response Handling & Generics", () => {
   test("AxiosResponse data matches generic shape for JSON", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res: AxiosResponse<{ hello: string }> = await axios.get(`${baseURL}/json`);
+      const res: AxiosResponse<{ hello: string }> = await axios.get(
+        `${baseURL}/json`,
+      );
       assert.equal(res.status, 200);
       assert.equal(res.data.hello, "world");
     } finally {
@@ -174,7 +218,9 @@ describe("Response Handling & Generics", () => {
   test("responseType arraybuffer returns binary buffer (ArrayBuffer or Buffer in Node)", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.get(`${baseURL}/json`, { responseType: "arraybuffer" });
+      const res = await axios.get(`${baseURL}/json`, {
+        responseType: "arraybuffer",
+      });
       // Kleos (fetch) returns ArrayBuffer; axios Node adapter may return Buffer.
       const bytes =
         res.data instanceof ArrayBuffer
@@ -182,7 +228,10 @@ describe("Response Handling & Generics", () => {
           : Buffer.isBuffer(res.data)
             ? res.data
             : null;
-      assert.ok(bytes, `unexpected arraybuffer payload: ${Object.prototype.toString.call(res.data)}`);
+      assert.ok(
+        bytes,
+        `unexpected arraybuffer payload: ${Object.prototype.toString.call(res.data)}`,
+      );
       const text = new TextDecoder().decode(bytes);
       assert.ok(text.includes("hello"));
     } finally {
@@ -193,19 +242,21 @@ describe("Response Handling & Generics", () => {
   test("responseType stream yields readable data (Web ReadableStream)", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.get(`${baseURL}/json`, { responseType: "stream" });
+      const res = await axios.get(`${baseURL}/json`, {
+        responseType: "stream",
+      });
       const body = res.data as ReadableStream<Uint8Array>;
       assert.ok(body && typeof body.getReader === "function");
       const reader = body.getReader();
       const chunks: Uint8Array[] = [];
       while (true) {
         const { done, value } = await reader.read();
-        if (done)
-          break;
-        if (value)
-          chunks.push(value);
+        if (done) break;
+        if (value) chunks.push(value);
       }
-      const joined = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
+      const joined = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString(
+        "utf8",
+      );
       assert.ok(joined.includes("hello"));
     } finally {
       await stopTestServer(server);
@@ -225,7 +276,9 @@ describe("Response Handling & Generics", () => {
       } else if (typeof res.data === "string") {
         assert.ok(res.data.includes("hello"));
       } else {
-        assert.fail(`unexpected blob response payload: ${Object.prototype.toString.call(res.data)}`);
+        assert.fail(
+          `unexpected blob response payload: ${Object.prototype.toString.call(res.data)}`,
+        );
       }
     } finally {
       await stopTestServer(server);
@@ -235,9 +288,71 @@ describe("Response Handling & Generics", () => {
   test("POST JSON body is serialized and Content-Type set", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.post<EchoedRequest>(`${baseURL}/echo`, { foo: "bar" });
-      assert.ok(String(res.data.headers["content-type"] ?? "").includes("application/json"));
+      const res = await axios.post<EchoedRequest>(`${baseURL}/echo`, {
+        foo: "bar",
+      });
+      assert.ok(
+        String(res.data.headers["content-type"] ?? "").includes(
+          "application/json",
+        ),
+      );
       assert.deepEqual(JSON.parse(res.data.body), { foo: "bar" });
+    } finally {
+      await stopTestServer(server);
+    }
+  });
+
+  test("transformResponse runs in forward registration order (Axios contract)", async () => {
+    const { baseURL, server } = await startTestServer();
+    try {
+      const steps: string[] = [];
+      const res = await axios.get(`${baseURL}/json`, {
+        transformResponse: [
+          (data) => {
+            steps.push("first");
+            const obj =
+              typeof data === "string" ? JSON.parse(data as string) : data;
+            return { ...(obj as object), step: 1 };
+          },
+          (data) => {
+            steps.push("second");
+            return { ...(data as object), step: 2 };
+          },
+        ],
+      });
+      assert.deepEqual(steps, ["first", "second"]);
+      assert.equal((res.data as { step?: number }).step, 2);
+    } finally {
+      await stopTestServer(server);
+    }
+  });
+
+  test("transformResponse receives data, headers, and status (Axios API)", async () => {
+    const { baseURL, server } = await startTestServer();
+    try {
+      let sawHeaders = false;
+      let sawStatus = false;
+      const res = await axios.get(`${baseURL}/json`, {
+        transformResponse: [
+          (data, headers, status) => {
+            assert.equal(typeof data, "string");
+            sawHeaders =
+              typeof headers === "object" &&
+              headers !== null &&
+              Boolean((headers as Record<string, string>)["content-type"]);
+            sawStatus = status === 200;
+            const obj =
+              typeof data === "string" ? JSON.parse(data as string) : data;
+            return { ...(obj as object), fromTransform: true };
+          },
+        ],
+      });
+      assert.ok(sawHeaders);
+      assert.ok(sawStatus);
+      assert.equal(
+        (res.data as { fromTransform?: boolean }).fromTransform,
+        true,
+      );
     } finally {
       await stopTestServer(server);
     }
@@ -393,8 +508,14 @@ describe("Parameters & Serialization", () => {
   test("flat params appear in query string", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, { params: { a: "1", b: "two" } });
-      const sp = new URLSearchParams(res.data.search.startsWith("?") ? res.data.search.slice(1) : res.data.search);
+      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, {
+        params: { a: "1", b: "two" },
+      });
+      const sp = new URLSearchParams(
+        res.data.search.startsWith("?")
+          ? res.data.search.slice(1)
+          : res.data.search,
+      );
       assert.equal(sp.get("a"), "1");
       assert.equal(sp.get("b"), "two");
     } finally {
@@ -405,7 +526,9 @@ describe("Parameters & Serialization", () => {
   test("array params serialize (axios default: repeated keys with brackets[])", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, { params: { id: [1, 2, 3] } });
+      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, {
+        params: { id: [1, 2, 3] },
+      });
       assert.ok(res.data.search.includes("1"));
       assert.ok(res.data.search.includes("2"));
       assert.ok(res.data.search.includes("3"));
@@ -418,8 +541,12 @@ describe("Parameters & Serialization", () => {
     const { baseURL, server } = await startTestServer();
     try {
       const d = new Date("2020-01-02T03:04:05.000Z");
-      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, { params: { d } });
-      assert.ok(res.data.search.includes("2020") || res.data.search.includes("01"));
+      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, {
+        params: { d },
+      });
+      assert.ok(
+        res.data.search.includes("2020") || res.data.search.includes("01"),
+      );
     } finally {
       await stopTestServer(server);
     }
@@ -432,7 +559,9 @@ describe("Parameters & Serialization", () => {
         params: { user: { name: "n", role: "r" } },
       });
       assert.ok(res.data.search.includes("user"));
-      assert.ok(res.data.search.includes("name") || res.data.search.includes("n"));
+      assert.ok(
+        res.data.search.includes("name") || res.data.search.includes("n"),
+      );
     } finally {
       await stopTestServer(server);
     }
@@ -445,7 +574,9 @@ describe("Parameters & Serialization", () => {
         params: { a: 1, b: 2 },
         paramsSerializer: () => "custom=ok",
       });
-      const q = res.data.search.startsWith("?") ? res.data.search.slice(1) : res.data.search;
+      const q = res.data.search.startsWith("?")
+        ? res.data.search.slice(1)
+        : res.data.search;
       assert.equal(q, "custom=ok");
     } finally {
       await stopTestServer(server);
@@ -459,7 +590,9 @@ describe("Parameters & Serialization", () => {
         params: { a: 1, b: null, c: undefined },
       });
       assert.ok(res.data.search.includes("a"));
-      assert.ok(!res.data.search.includes("b=") && !res.data.search.includes("b&"));
+      assert.ok(
+        !res.data.search.includes("b=") && !res.data.search.includes("b&"),
+      );
       assert.ok(!res.data.search.includes("c="));
     } finally {
       await stopTestServer(server);
@@ -471,9 +604,13 @@ describe("Payload & Form Data", () => {
   test("URL-encoded object when Content-Type is application/x-www-form-urlencoded", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.post<EchoedRequest>(`${baseURL}/echo`, { a: "1", b: "x y" }, {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
+      const res = await axios.post<EchoedRequest>(
+        `${baseURL}/echo`,
+        { a: "1", b: "x y" },
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        },
+      );
       const ct = String(res.data.headers["content-type"] ?? "");
       assert.ok(ct.includes("application/x-www-form-urlencoded"));
       const body = new URLSearchParams(res.data.body);
@@ -489,7 +626,11 @@ describe("Payload & Form Data", () => {
     try {
       const params = new URLSearchParams({ q: "ok" });
       const res = await axios.post<EchoedRequest>(`${baseURL}/echo`, params);
-      assert.ok(String(res.data.headers["content-type"] ?? "").includes("application/x-www-form-urlencoded"));
+      assert.ok(
+        String(res.data.headers["content-type"] ?? "").includes(
+          "application/x-www-form-urlencoded",
+        ),
+      );
       assert.equal(new URLSearchParams(res.data.body).get("q"), "ok");
     } finally {
       await stopTestServer(server);
@@ -511,13 +652,54 @@ describe("Payload & Form Data", () => {
     }
   });
 
+  test("postForm(FileList) sends each file under files[] (Axios multipart docs)", async () => {
+    if (typeof File === "undefined") {
+      return;
+    }
+    const { baseURL, server } = await startTestServer();
+    try {
+      await withFileListGlobal(async () => {
+        const f1 = new File(["alpha"], "one.txt", { type: "text/plain" });
+        const f2 = new File(["beta"], "two.txt", { type: "text/plain" });
+        const list = createTestFileList(f1, f2);
+        const res = await axios.postForm<EchoedRequest>(
+          `${baseURL}/echo`,
+          list,
+        );
+        assert.ok(
+          String(res.data.headers["content-type"] ?? "").includes(
+            "multipart/form-data",
+          ),
+        );
+        assert.ok(res.data.body.includes('name="files[]"'));
+        assert.ok(
+          res.data.body.includes("alpha") || res.data.body.includes("beta"),
+        );
+      });
+    } finally {
+      await stopTestServer(server);
+    }
+  });
+
   test("putForm and patchForm use multipart encoding", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const putRes = await axios.putForm<EchoedRequest>(`${baseURL}/echo`, { x: "p" });
-      assert.ok(String(putRes.data.headers["content-type"] ?? "").includes("multipart/form-data"));
-      const patchRes = await axios.patchForm<EchoedRequest>(`${baseURL}/echo`, { x: "h" });
-      assert.ok(String(patchRes.data.headers["content-type"] ?? "").includes("multipart/form-data"));
+      const putRes = await axios.putForm<EchoedRequest>(`${baseURL}/echo`, {
+        x: "p",
+      });
+      assert.ok(
+        String(putRes.data.headers["content-type"] ?? "").includes(
+          "multipart/form-data",
+        ),
+      );
+      const patchRes = await axios.patchForm<EchoedRequest>(`${baseURL}/echo`, {
+        x: "h",
+      });
+      assert.ok(
+        String(patchRes.data.headers["content-type"] ?? "").includes(
+          "multipart/form-data",
+        ),
+      );
     } finally {
       await stopTestServer(server);
     }
@@ -531,7 +713,11 @@ describe("Payload & Form Data", () => {
       const blob = new Blob(["hello"], { type: "text/plain" });
       fd.append("file", blob, "a.txt");
       const res = await axios.post<EchoedRequest>(`${baseURL}/echo`, fd);
-      assert.ok(String(res.data.headers["content-type"] ?? "").includes("multipart/form-data"));
+      assert.ok(
+        String(res.data.headers["content-type"] ?? "").includes(
+          "multipart/form-data",
+        ),
+      );
       assert.ok(res.data.body.includes('name="field"'));
       assert.ok(res.data.body.includes("hello"));
     } finally {
@@ -561,6 +747,52 @@ describe("Payload & Form Data", () => {
       });
       assert.equal(res.data.body.length, 3);
     } finally {
+      await stopTestServer(server);
+    }
+  });
+
+  // Kleos flattens named controls to a JSON object (browser-oriented parity with the axios docs example).
+  test("HTMLFormElement with Content-Type application/json sends JSON including field values", async () => {
+    const { baseURL, server } = await startTestServer();
+    const previousHtmlForm = globalThis.HTMLFormElement;
+    globalThis.HTMLFormElement =
+      class HTMLFormElement {} as typeof globalThis.HTMLFormElement;
+    class TestForm extends globalThis.HTMLFormElement {
+      override elements = [
+        {
+          name: "firstName",
+          value: "Fred",
+          type: "text",
+          disabled: false,
+          checked: true,
+        },
+        {
+          name: "lastName",
+          value: "Flintstone",
+          type: "text",
+          disabled: false,
+          checked: true,
+        },
+      ] as unknown as HTMLFormControlsCollection;
+    }
+    try {
+      const res = await axios.post<EchoedRequest>(
+        `${baseURL}/echo`,
+        new TestForm() as never,
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      assert.ok(
+        String(res.data.headers["content-type"] ?? "").includes(
+          "application/json",
+        ),
+      );
+      const parsed = JSON.parse(res.data.body) as Record<string, unknown>;
+      assert.equal(parsed.firstName, "Fred");
+      assert.equal(parsed.lastName, "Flintstone");
+    } finally {
+      globalThis.HTMLFormElement = previousHtmlForm;
       await stopTestServer(server);
     }
   });
@@ -610,7 +842,9 @@ describe("Advanced Features", () => {
     const { baseURL, server } = await startTestServer();
     const controller = new AbortController();
     try {
-      const p = axios.get(`${baseURL}/delay?ms=5000`, { signal: controller.signal });
+      const p = axios.get(`${baseURL}/delay?ms=5000`, {
+        signal: controller.signal,
+      });
       setTimeout(() => controller.abort(), 30);
       await p;
       assert.fail("expected abort");
@@ -637,7 +871,9 @@ describe("Advanced Features", () => {
   test("withCredentials flag does not break Node requests", async () => {
     const { baseURL, server } = await startTestServer();
     try {
-      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, { withCredentials: true });
+      const res = await axios.get<EchoedRequest>(`${baseURL}/echo`, {
+        withCredentials: true,
+      });
       assert.equal(res.status, 200);
     } finally {
       await stopTestServer(server);
@@ -646,7 +882,12 @@ describe("Advanced Features", () => {
 
   test("onDownloadProgress receives loaded/total and optional rate/estimated on chunked response", async () => {
     const { baseURL, server } = await startTestServer();
-    const events: Array<{ loaded: number; total?: number; rate?: number; estimated?: number }> = [];
+    const events: Array<{
+      loaded: number;
+      total?: number;
+      rate?: number;
+      estimated?: number;
+    }> = [];
     try {
       await axios.get(`${baseURL}/chunked`, {
         responseType: "arraybuffer",
